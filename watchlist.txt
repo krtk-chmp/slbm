@@ -1,0 +1,6 @@
+# One NSE symbol per line. Edit this on GitHub to change the default list.
+# Lines starting with # are ignored.
+RELIANCE,100
+TITAN,250
+HINDALCO
+TATAELXSI
