@@ -23,43 +23,44 @@ st.set_page_config(page_title="Rent Tracker", page_icon="📈", layout="centered
 st.markdown("""
 <style>
   .block-container { padding-top: 2.2rem; max-width: 760px; }
-  html, body, [class*="st-"] { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
   #MainMenu, footer { visibility: hidden; }
 
   .topbar { display:flex; justify-content:space-between; align-items:baseline;
-            border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:6px; }
-  .brand { font-size:1.35rem; font-weight:600; color:#26323a; }
-  .asof  { font-size:.8rem; color:#9aa4ab; }
+            border-bottom:1px solid color-mix(in srgb, var(--text-color, #26323a) 14%, transparent);
+            padding-bottom:10px; margin-bottom:6px; }
+  .brand { font-size:1.35rem; font-weight:600; color: var(--text-color, #26323a); }
+  .asof  { font-size:.8rem; color: color-mix(in srgb, var(--text-color, #26323a) 55%, transparent); }
 
-  .sechead { font-size:.75rem; font-weight:600; letter-spacing:.08em; color:#9aa4ab;
+  .sechead { font-size:.75rem; font-weight:600; letter-spacing:.08em;
+             color: color-mix(in srgb, var(--text-color, #26323a) 55%, transparent);
              text-transform:uppercase; margin:26px 0 4px 2px; }
 
   .row { display:flex; justify-content:space-between; align-items:center;
-         padding:12px 4px 10px 2px; border-bottom:1px solid #f2f4f5; }
-  .sym  { font-size:1.02rem; font-weight:600; color:#26323a; }
-  .sub  { font-size:.75rem; color:#9aa4ab; margin-top:1px; }
+         padding:12px 4px 10px 2px;
+         border-bottom:1px solid color-mix(in srgb, var(--text-color, #26323a) 10%, transparent); }
+  .sym  { font-size:1.02rem; font-weight:600; color: var(--text-color, #26323a); }
+  .sub  { font-size:.75rem; color: color-mix(in srgb, var(--text-color, #26323a) 50%, transparent); margin-top:1px; }
   .nums { text-align:right; }
-  .fee  { font-size:1.02rem; font-weight:500; color:#26323a; }
-  .pct-hot  { font-size:.8rem; font-weight:600; color:#1e8a4c; }
-  .pct-warm { font-size:.8rem; font-weight:600; color:#c98a00; }
-  .pct-quiet{ font-size:.8rem; font-weight:600; color:#9aa4ab; }
+  .fee  { font-size:1.02rem; font-weight:500; color: var(--text-color, #26323a); }
+  .pct-hot  { font-size:.8rem; font-weight:600; color:#21a05f; }
+  .pct-warm { font-size:.8rem; font-weight:600; color:#d19412; }
+  .pct-quiet{ font-size:.8rem; font-weight:600; color: color-mix(in srgb, var(--text-color, #26323a) 45%, transparent); }
 
-  .chip { font-size:.7rem; font-weight:600; padding:2px 9px; border-radius:10px; }
-  .chip-hot   { background:#e6f4ec; color:#1e8a4c; }
-  .chip-warm  { background:#fdf3dd; color:#b07c00; }
-  .chip-quiet { background:#f2f4f5; color:#8a949b; }
+  .chip { font-size:.7rem; font-weight:600; padding:2px 9px; border-radius:10px; white-space:nowrap; }
+  .chip-hot   { background:rgba(46,160,95,.16); color:#21a05f; }
+  .chip-warm  { background:rgba(209,148,18,.16); color:#d19412; }
+  .chip-quiet { background:color-mix(in srgb, var(--text-color, #26323a) 8%, transparent);
+                color: color-mix(in srgb, var(--text-color, #26323a) 55%, transparent); }
 
-  .why { color:#4a555e; font-size:.9rem; line-height:1.65; }
+  .why { color: color-mix(in srgb, var(--text-color, #26323a) 80%, transparent);
+         font-size:.9rem; line-height:1.65; }
   .kv  { display:flex; gap:26px; flex-wrap:wrap; margin:4px 0 10px 0; }
-  .kv div { font-size:.95rem; color:#26323a; }
-  .kv span { display:block; font-size:.7rem; color:#9aa4ab; text-transform:uppercase; letter-spacing:.05em; }
-  .earn { background:#f6f9fc; border-radius:8px; padding:10px 14px; font-size:.95rem;
-          color:#26323a; margin:8px 0; }
-
-  div[data-testid="stExpander"] { border:none !important; }
-  div[data-testid="stExpander"] details { border:none; background:#fbfcfd; border-radius:8px; }
-  .stButton button { font-size:.8rem; padding:2px 10px; border:1px solid #e6e9eb;
-                     background:#fff; color:#6a747c; border-radius:6px; }
+  .kv div { font-size:.95rem; color: var(--text-color, #26323a); }
+  .kv span { display:block; font-size:.7rem;
+             color: color-mix(in srgb, var(--text-color, #26323a) 55%, transparent);
+             text-transform:uppercase; letter-spacing:.05em; }
+  .earn { background: var(--secondary-background-color, #f6f9fc); border-radius:8px;
+          padding:10px 14px; font-size:.95rem; color: var(--text-color, #26323a); margin:8px 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -197,12 +198,20 @@ def detail(row, qty: int):
         st.line_chart(recent[["fee", "5-day avg", "20-day avg"]], height=230)
 
         if h["date"].dt.year.nunique() >= 2:
-            st.markdown("**Which months this share usually pays (5-year history)**")
-            season = h.groupby(h["date"].dt.month)["fee"].mean().reindex(range(1, 13))
-            season.index = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            st.markdown("**Which months this share usually pays**")
+            years = sorted(h["date"].dt.year.unique(), reverse=True)
+            pick = st.selectbox(
+                "Show", ["Average of all years"] + [str(y) for y in years],
+                key=f"season_{row['symbol']}", label_visibility="collapsed")
+            hh = h if pick == "Average of all years" else h[h["date"].dt.year == int(pick)]
+            season = hh.groupby(hh["date"].dt.month)["fee"].mean().reindex(range(1, 13))
+            season.index = ["01 Jan", "02 Feb", "03 Mar", "04 Apr", "05 May", "06 Jun",
+                            "07 Jul", "08 Aug", "09 Sep", "10 Oct", "11 Nov", "12 Dec"]
             st.bar_chart(season, height=200)
-            st.caption("Average lending fee by calendar month. Tall bars = months this share is usually in demand — plan around them.")
+            st.caption("Average lending fee by month"
+                       + ("" if pick == "Average of all years" else f" in {pick}")
+                       + ". Tall bars = months this share is usually in demand. "
+                         "Gaps = months with no lending activity.")
 
             st.markdown("**Full history (monthly average)**")
             monthly = h.set_index("date")["fee"].resample("ME").mean()
