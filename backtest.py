@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from slbm.signals import lean_points, lean_label
+from slbm.signals import lean_points, lean_label, cost_of_carry
 
 DB_PATH = Path(__file__).parent / "data" / "slbm.db"
 HORIZON = 10  # trading days forward
@@ -29,7 +29,7 @@ def run(con: sqlite3.Connection) -> pd.DataFrame:
     df = opt.merge(fut, on=["date", "symbol"], how="left").merge(px, on=["date", "symbol"], how="left")
     df["spot"] = df["spot_close"].where(df["spot_close"] > 0, df["close"])
     days_to_exp = (pd.to_datetime(df["expiry"]) - pd.to_datetime(df["date"])).dt.days.clip(lower=1)
-    df["coc"] = (df["fut_close"] - df["spot"]) / df["spot"] * (365 / days_to_exp) * 100
+    df["coc"] = cost_of_carry(df["fut_close"], df["spot"], days_to_exp)
     df.loc[df["spot"].isna() | (df["fut_close"] <= 0), "coc"] = None
 
     df = df.sort_values(["symbol", "date"])

@@ -38,8 +38,8 @@ in the browser; those edits live in the page URL, so they just re-bookmark.
 
 ```bash
 pip install -r requirements.txt
-python deep_backfill.py 1830             # once: 5 years of SLBM history (~3 min)
-python run_daily.py --backfill 40        # once: recent prices/futures/options
+python run_daily.py --backfill 1830 --light   # once: 5 years of SLBM history (~3 min)
+python run_daily.py --backfill 40             # once: recent prices/futures/options
 streamlit run dashboard/app.py           # the dashboard
 ```
 

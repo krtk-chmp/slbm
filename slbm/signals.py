@@ -16,6 +16,12 @@ from datetime import date, datetime, timedelta
 log = logging.getLogger("slbm")
 
 
+def cost_of_carry(fut, spot, days):
+    """Annualized cost of carry %, nearest-future close vs spot. Caller ensures days >= 1.
+    Works on scalars and pandas Series (pure elementwise arithmetic)."""
+    return (fut - spot) / spot * (365 / days) * 100
+
+
 def _trading_dates(con, upto: str, n: int) -> list[str]:
     rows = con.execute(
         "SELECT DISTINCT date FROM slb_trades WHERE date<=? ORDER BY date DESC LIMIT ?",
@@ -63,7 +69,7 @@ def compute_scores(con: sqlite3.Connection, d: date) -> int:
            FROM futures WHERE date=? AND spot_close>0 GROUP BY symbol""", (latest,)):
         try:
             days = (datetime.strptime(expiry, "%Y-%m-%d").date() - d).days or 1
-            coc[sym] = (fut - und) / und * (365 / max(days, 1)) * 100
+            coc[sym] = cost_of_carry(fut, und, max(days, 1))
         except Exception:
             pass
 

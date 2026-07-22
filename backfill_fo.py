@@ -31,8 +31,7 @@ ARCH = "https://nsearchives.nseindia.com"
 
 def fo_urls(d: date) -> list[str]:
     udiff = f"{ARCH}/content/fo/BhavCopy_NSE_FO_0_0_0_{d:%Y%m%d}_F_0000.csv.zip"
-    old = f"{ARCH}/content/historical/DERIVATIVES/{d:%Y}/{d:%b}/fo{d:%d%b%Y}bhav.csv.zip".upper().replace("HTTPS", "https").replace("CONTENT/HISTORICAL/DERIVATIVES", "content/historical/DERIVATIVES")
-    # build old url carefully: month dir upper, filename like fo06JUL2021bhav.csv.zip
+    # old format: month dir upper, filename like fo06JUL2021bhav.csv.zip
     old = f"{ARCH}/content/historical/DERIVATIVES/{d.year}/{d.strftime('%b').upper()}/fo{d.strftime('%d%b%Y').upper()}bhav.csv.zip"
     return [udiff, old] if d >= date(2024, 7, 1) else [old, udiff]
 
@@ -113,10 +112,7 @@ def fetch(args):
 
 
 def main(days: int):
-    con = db.connect(DB_PATH)
-    con.execute("""CREATE TABLE IF NOT EXISTS participant_oi (
-        date TEXT, category TEXT, stk_fut_long INTEGER, stk_fut_short INTEGER,
-        PRIMARY KEY (date, category))""")
+    con = db.connect(DB_PATH)  # runs the full schema, participant_oi included
     have = {r[0] for r in con.execute("SELECT DISTINCT date FROM fo_options")}
     slb_syms = {r[0] for r in con.execute("SELECT DISTINCT symbol FROM slb_trades")}
 

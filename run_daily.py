@@ -8,6 +8,7 @@ Usage:
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -21,8 +22,8 @@ log = logging.getLogger("slbm")
 DB_PATH = Path(__file__).parent / "data" / "slbm.db"
 
 
-def fetch_day(nse: NSEClient, con, d: date, skip_existing=True, light=False) -> bool:
-    """Fetch files for one date. light=True -> SLB files only (fast deep history)."""
+def fetch_day(nse: NSEClient, con, d: date, skip_existing=True) -> bool:
+    """Fetch all files for one date (SLB + prices + F&O + participant OI)."""
     ds = d.isoformat()
     if d.weekday() >= 5:
         return False
@@ -39,8 +40,6 @@ def fetch_day(nse: NSEClient, con, d: date, skip_existing=True, light=False) -> 
     op = nse.slb_open_positions(d)
     if op:
         ingest.store_open_positions(con, d, op)
-    if light:
-        return True
     eq = nse.equity_bhavdata(d)
     if eq:
         ingest.store_equity_bhavdata(con, d, eq)
@@ -51,6 +50,36 @@ def fetch_day(nse: NSEClient, con, d: date, skip_existing=True, light=False) -> 
     if pb:
         ingest.store_participant_oi(con, d, pb.decode("utf-8", "replace"))
     return True
+
+
+def _fetch_light(args):
+    nse, d = args
+    return d, nse.slbm_bhavcopy(d), nse.slb_open_positions(d)
+
+
+def light_backfill(con, days: int, workers: int = 8):
+    """Parallel SLB-only backfill (fees + open positions) for deep history.
+    Fetches in threads, writes on the main thread (SQLite wants one writer)."""
+    have = {r[0] for r in con.execute("SELECT DISTINCT date FROM slb_trades")}
+    todo = []
+    d = date.today() - timedelta(days=days)
+    while d <= date.today():
+        if d.weekday() < 5 and d.isoformat() not in have:
+            todo.append(d)
+        d += timedelta(days=1)
+    log.info("%d days to fetch", len(todo))
+    clients = [NSEClient() for _ in range(workers)]
+    jobs = [(clients[i % workers], dd) for i, dd in enumerate(todo)]
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for dd, slb, op in ex.map(_fetch_light, jobs):
+            if slb:
+                ingest.store_slbm_bhavcopy(con, dd, slb)
+            if op:
+                ingest.store_open_positions(con, dd, op)
+            done += 1
+            if done % 100 == 0:
+                log.info("%d/%d", done, len(todo))
 
 
 def main():
@@ -65,10 +94,13 @@ def main():
     nse = NSEClient()
 
     if args.backfill:
-        d = date.today() - timedelta(days=args.backfill)
-        while d <= date.today():
-            fetch_day(nse, con, d, light=args.light)
-            d += timedelta(days=1)
+        if args.light:
+            light_backfill(con, args.backfill)
+        else:
+            d = date.today() - timedelta(days=args.backfill)
+            while d <= date.today():
+                fetch_day(nse, con, d)
+                d += timedelta(days=1)
     elif args.fo_days:
         d = date.today() - timedelta(days=args.fo_days)
         while d <= date.today():
