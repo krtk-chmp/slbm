@@ -64,6 +64,21 @@ Rules, not magic. Points come from the known drivers of SLBM rent:
 
 60+ = IN DEMAND (green), 35–59 = WARMING UP (yellow), below = QUIET.
 
+## Options & positioning data (added later)
+
+- 5 years of F&O history: put-call OI, front-month futures, prices for all F&O
+  stocks, FII/DII/Pro/Client participant positions. `backfill_fo.py` rebuilds it.
+- Strike-level option positions (nearest expiry, ±15% of price, rolling 3 weeks)
+  power the "where the bets sit" chart.
+- `backtest.py` re-tests the positioning signal against 5 years of history on
+  every nightly run and stores hit rates in `signal_stats`.
+
+**Backtest verdict (why the app doesn't say "buy puts/calls"):** across ~68,000
+put-heavy or call-heavy setups in 5 years, the signal predicted direction no
+better than chance (bearish setups: price fell only 44% of the time; bullish:
+53% vs a 53% market base rate). The dashboard therefore shows positioning as
+information with its measured track record attached, never as a trade call.
+
 ## Things that will eventually need attention
 
 - **NSE changes file URLs every year or two.** If the Action starts logging

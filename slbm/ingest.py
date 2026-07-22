@@ -80,6 +80,8 @@ def store_equity_bhavdata(con: sqlite3.Connection, d: date, text: str) -> int:
 def store_fo_bhavcopy(con: sqlite3.Connection, d: date, text: str) -> int:
     rows = []
     opt: dict[str, list[int]] = {}  # symbol -> [ce_oi, pe_oi]
+    strikes = []  # (symbol, expiry, strike, side, oi, spot)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     for r in csv.DictReader(io.StringIO(text)):
         typ = r.get("FinInstrmTp")
         if typ == "STF":  # single stock futures
@@ -94,11 +96,25 @@ def store_fo_bhavcopy(con: sqlite3.Connection, d: date, text: str) -> int:
             if sym and side in ("CE", "PE"):
                 a = opt.setdefault(sym, [0, 0])
                 a[0 if side == "CE" else 1] += oi
+                strikes.append((sym, r.get("XpryDt", ""), _f(r.get("StrkPric")),
+                                side, oi, _f(r.get("UndrlygPric"))))
     con.executemany("INSERT OR REPLACE INTO futures VALUES (?,?,?,?,?,?)", rows)
     con.executemany(
         "INSERT OR REPLACE INTO fo_options VALUES (?,?,?,?)",
         [(d.isoformat(), s, ce, pe) for s, (ce, pe) in opt.items()],
     )
+    # strike-level: nearest expiry only, strikes within ±15% of spot
+    near = {}
+    for s, exp, *_ in strikes:
+        if exp and (s not in near or exp < near[s]):
+            near[s] = exp
+    srows = [
+        (d.isoformat(), s, exp, k, side, oi)
+        for s, exp, k, side, oi, spot in strikes
+        if exp == near.get(s) and spot > 0 and abs(k / spot - 1) <= 0.15
+    ]
+    con.executemany("INSERT OR REPLACE INTO fo_strikes VALUES (?,?,?,?,?,?)", srows)
+    con.execute("DELETE FROM fo_strikes WHERE date < date((SELECT MAX(date) FROM fo_strikes), '-21 days')")
     con.commit()
     return len(rows)
 
@@ -117,5 +133,23 @@ def store_corp_actions(con: sqlite3.Connection, records: list[dict]) -> int:
             continue
         rows.append(((r.get("symbol") or "").strip(), ex, subject))
     con.executemany("INSERT OR REPLACE INTO corp_actions VALUES (?,?,?)", rows)
+    con.commit()
+    return len(rows)
+
+
+def store_participant_oi(con: sqlite3.Connection, d: date, text: str) -> int:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [l for l in text.splitlines() if l.strip()]
+    rows = []
+    rdr = csv.reader(io.StringIO("\n".join(lines[1:])))
+    next(rdr, None)  # header
+    for r in rdr:
+        if not r or not r[0].strip() or r[0].strip().upper() == "TOTAL":
+            continue
+        try:
+            rows.append((d.isoformat(), r[0].strip(), _i(r[3]), _i(r[4])))
+        except (ValueError, IndexError):
+            continue
+    con.executemany("INSERT OR REPLACE INTO participant_oi VALUES (?,?,?,?)", rows)
     con.commit()
     return len(rows)

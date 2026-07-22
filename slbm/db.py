@@ -27,6 +27,18 @@ CREATE TABLE IF NOT EXISTS fo_options (
     date TEXT, symbol TEXT, ce_oi INTEGER, pe_oi INTEGER,
     PRIMARY KEY (date, symbol)
 );
+CREATE TABLE IF NOT EXISTS fo_strikes (
+    date TEXT, symbol TEXT, expiry TEXT, strike REAL, side TEXT, oi INTEGER,
+    PRIMARY KEY (date, symbol, expiry, strike, side)
+);
+CREATE TABLE IF NOT EXISTS participant_oi (
+    date TEXT, category TEXT, stk_fut_long INTEGER, stk_fut_short INTEGER,
+    PRIMARY KEY (date, category)
+);
+CREATE TABLE IF NOT EXISTS signal_stats (
+    direction TEXT, strength TEXT, n INTEGER, hits INTEGER, avg_ret REAL,
+    PRIMARY KEY (direction, strength)
+);
 CREATE TABLE IF NOT EXISTS corp_actions (
     symbol TEXT, ex_date TEXT, subject TEXT,
     PRIMARY KEY (symbol, ex_date, subject)

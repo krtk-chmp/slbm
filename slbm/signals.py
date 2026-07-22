@@ -171,3 +171,40 @@ def compute_scores(con: sqlite3.Connection, d: date) -> int:
     con.commit()
     log.info("scored %d symbols for %s", len(rows), latest)
     return len(rows)
+
+
+# ---- options positioning lean (shared by dashboard + backtest) --------------
+
+def lean_points(pcr, pcr_prev, coc) -> tuple[int, list[str]]:
+    """Score options/futures positioning. +ve = bearish, -ve = bullish."""
+    pts, notes = 0, []
+    if pcr is not None:
+        if pcr >= 1.3:
+            pts += 2; notes.append(f"heavy put positions (PCR {pcr:.2f})")
+        elif pcr >= 1.1:
+            pts += 1; notes.append(f"more puts than calls (PCR {pcr:.2f})")
+        elif pcr <= 0.7:
+            pts -= 2; notes.append(f"heavy call positions (PCR {pcr:.2f})")
+        elif pcr <= 0.9:
+            pts -= 1; notes.append(f"more calls than puts (PCR {pcr:.2f})")
+        if pcr_prev is not None:
+            if pcr - pcr_prev > 0.08:
+                pts += 1; notes.append("put positions grew this week")
+            elif pcr_prev - pcr > 0.08:
+                pts -= 1; notes.append("call positions grew this week")
+    if coc is not None:
+        if coc < 0:
+            pts += 2; notes.append(f"futures priced below cash ({coc:.1f}% carry) — shorting pressure")
+        elif coc < 3:
+            pts += 1; notes.append(f"weak futures carry ({coc:.1f}%)")
+        elif coc > 10:
+            pts -= 1; notes.append(f"strong futures carry ({coc:.1f}%)")
+    return pts, notes
+
+
+def lean_label(pts: int) -> tuple[str, str]:
+    if pts >= 3:
+        return "bearish", "strong" if pts >= 4 else "mild"
+    if pts <= -3:
+        return "bullish", "strong" if pts <= -4 else "mild"
+    return "mixed", ""

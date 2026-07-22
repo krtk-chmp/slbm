@@ -9,10 +9,14 @@ Portfolio persistence (hosted filesystem resets on every data push):
 """
 import json
 import sqlite3
+import sys
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from slbm.signals import lean_points
 
 ROOT = Path(__file__).parent.parent
 DB = ROOT / "data" / "slbm.db"
@@ -125,6 +129,80 @@ def band(score: int) -> tuple[str, str]:
 
 
 @st.cache_data(ttl=3600)
+def pcr_history(sym: str) -> pd.DataFrame:
+    return pd.read_sql_query(
+        """SELECT date, CAST(pe_oi AS REAL)/NULLIF(ce_oi,0) AS pcr
+           FROM fo_options WHERE symbol=? ORDER BY date""",
+        get_con(), params=(sym,))
+
+
+def options_lean(sym: str, coc) -> tuple[str, list[str]]:
+    """Descriptive positioning label + facts (no direction-picking)."""
+    ph = pcr_history(sym)
+    pcr = ph["pcr"].iloc[-1] if len(ph) else None
+    prev = ph["pcr"].iloc[-6] if len(ph) > 6 else None
+    pcr = None if pcr is None or pd.isna(pcr) else float(pcr)
+    prev = None if prev is None or pd.isna(prev) else float(prev)
+    coc = None if coc is None or pd.isna(coc) else float(coc)
+    pts, notes = lean_points(pcr, prev, coc)
+    if not notes:
+        return "", []
+    if pts >= 2:
+        return "Put-heavy positioning", notes
+    if pts <= -2:
+        return "Call-heavy positioning", notes
+    return "Balanced positioning", notes
+
+
+@st.cache_data(ttl=3600)
+def signal_stats() -> dict:
+    try:
+        df = pd.read_sql_query("SELECT * FROM signal_stats", get_con())
+        return {(r["direction"], r["strength"]): (int(r["n"]), int(r["hits"]))
+                for _, r in df.iterrows()}
+    except Exception:
+        return {}
+
+
+def track_record(label: str) -> str | None:
+    st_ = signal_stats()
+    base = st_.get(("base", ""))
+    if not st_ or base is None:
+        return None
+    base_up = base[1] / base[0] * 100
+    def pooled(direction):
+        rows = [v for (d, _), v in st_.items() if d == direction]
+        n = sum(r[0] for r in rows); h = sum(r[1] for r in rows)
+        return n, (h / n * 100 if n else 0)
+    if label.startswith("Put-heavy"):
+        n, fell = pooled("bearish")
+        return (f"5-year test ({n:,} similar setups): price actually FELL only {fell:.0f}% "
+                f"of the time — it rose more often than not. No predictive edge found; "
+                f"read this as where traders are positioned, not where price will go.")
+    if label.startswith("Call-heavy"):
+        n, rose = pooled("bullish")
+        return (f"5-year test ({n:,} similar setups): price rose {rose:.0f}% of the time — "
+                f"but any stock on any day rose {base_up:.0f}% of the time. No added edge; "
+                f"read this as positioning, not a prediction.")
+    return None
+
+
+@st.cache_data(ttl=3600)
+def strike_walls(sym: str) -> pd.DataFrame:
+    try:
+        d = pd.read_sql_query(
+            """SELECT strike, side, oi FROM fo_strikes
+               WHERE symbol=? AND date=(SELECT MAX(date) FROM fo_strikes WHERE symbol=?)""",
+            get_con(), params=(sym, sym))
+        if d.empty:
+            return d
+        return d.pivot_table(index="strike", columns="side", values="oi", aggfunc="sum").rename(
+            columns={"CE": "Calls OI", "PE": "Puts OI"}).fillna(0)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
 def fee_history(sym: str) -> pd.DataFrame:
     h = pd.read_sql_query(
         """SELECT date, SUM(close*qty)/NULLIF(SUM(qty),0) AS fee, SUM(qty) AS volume
@@ -189,6 +267,22 @@ def detail(row, qty: int):
                 "<br>".join(f"•&nbsp; {r}" for r in json.loads(row["reasons"])) +
                 "</div>", unsafe_allow_html=True)
 
+    label, notes = options_lean(row["symbol"], row.get("coc"))
+    if notes:
+        st.markdown(
+            f"""<div class="earn"><b>Options positioning: {label}</b><br>
+            <span style="font-size:.85rem">{" · ".join(notes)}</span></div>""",
+            unsafe_allow_html=True)
+        tr = track_record(label)
+        if tr:
+            st.caption(tr)
+        walls = strike_walls(row["symbol"])
+        if len(walls) > 3:
+            st.markdown("**Where the option bets sit (nearest expiry)**")
+            st.bar_chart(walls, height=220, stack=False)
+            st.caption("Open positions by strike price. Big put bars below the price often act "
+                       "as support levels; big call bars above as resistance. Descriptive, not predictive.")
+
     h = fee_history(row["symbol"])
     if len(h) > 5:
         st.markdown("**Recent fee, with 5 & 20-day averages**")
@@ -213,6 +307,23 @@ def detail(row, qty: int):
                        + ". Tall bars = months this share is usually in demand. "
                          "Gaps = months with no lending activity.")
 
+            st.markdown("**Coming months — what this share typically pays**")
+            mnames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            bym = h.groupby(h["date"].dt.month)["fee"]
+            med, lo, hi = bym.median(), bym.quantile(.25), bym.quantile(.75)
+            this_m = pd.Timestamp.today().month
+            months = [(this_m + i - 1) % 12 + 1 for i in range(1, 7)]
+            proj = pd.DataFrame({
+                "typical fee": [med.get(m) for m in months],
+                "usual low": [lo.get(m) for m in months],
+                "usual high": [hi.get(m) for m in months],
+            }, index=[f"{i+1:02d} {mnames[m-1]}" for i, m in enumerate(months)])
+            st.line_chart(proj, height=220)
+            st.caption("Based on how this share behaved in these months over the last 5 years — "
+                       "a pattern, not a promise. Actual fees depend on that month's demand "
+                       "(dividends, shorting interest).")
+
             st.markdown("**Full history (monthly average)**")
             monthly = h.set_index("date")["fee"].resample("ME").mean()
             st.line_chart(monthly, height=200)
@@ -234,6 +345,20 @@ st.markdown(
     f"""<div class="topbar"><span class="brand">Rent Tracker</span>
     <span class="asof">data up to {latest}</span></div>""",
     unsafe_allow_html=True)
+
+try:
+    pp = pd.read_sql_query(
+        """SELECT date, stk_fut_long - stk_fut_short AS net FROM participant_oi
+           WHERE category='FII' ORDER BY date DESC LIMIT 6""", con)
+    if len(pp) >= 2:
+        now, then = pp["net"].iloc[0], pp["net"].iloc[-1]
+        word = "net long" if now > 0 else "net short"
+        chg = "adding" if abs(now) > abs(then) and (now > 0) == (then > 0) else (
+              "reducing" if (now > 0) == (then > 0) else "flipping")
+        st.caption(f"Market context: big foreign funds (FII) are {word} stock futures "
+                   f"({now/1000:,.0f}k contracts), {chg} over the past week.")
+except Exception:
+    pass
 
 scores = pd.read_sql_query("SELECT * FROM scores WHERE date=?", con, params=(latest,))
 smap = scores.set_index("symbol", drop=False)

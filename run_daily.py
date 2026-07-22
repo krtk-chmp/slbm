@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from slbm import db, ingest, signals
-from slbm.nse import NSEClient
+from slbm.nse import NSEClient, ARCHIVES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("slbm")
@@ -47,6 +47,9 @@ def fetch_day(nse: NSEClient, con, d: date, skip_existing=True, light=False) -> 
     fo = nse.fo_bhavcopy(d)
     if fo:
         ingest.store_fo_bhavcopy(con, d, fo)
+    pb = nse._get(f"{ARCHIVES}/content/nsccl/fao_participant_oi_{d:%d%m%Y}.csv", tries=1)
+    if pb:
+        ingest.store_participant_oi(con, d, pb.decode("utf-8", "replace"))
     return True
 
 
@@ -78,9 +81,12 @@ def main():
     elif args.date:
         fetch_day(nse, con, date.fromisoformat(args.date), skip_existing=False)
     else:
-        # today; if today's file isn't out yet (run before ~7pm IST), try yesterday
-        if not fetch_day(nse, con, date.today(), skip_existing=False):
-            fetch_day(nse, con, date.today() - timedelta(days=1))
+        # catch up any missed recent days, then today (files appear ~7pm IST)
+        d = date.today() - timedelta(days=6)
+        while d < date.today():
+            fetch_day(nse, con, d, skip_existing=True)
+            d += timedelta(days=1)
+        fetch_day(nse, con, date.today(), skip_existing=False)
 
     # corporate actions: always refresh the forthcoming snapshot
     ca = nse.corporate_actions()
@@ -91,6 +97,12 @@ def main():
         log.warning("corporate actions unavailable this run (will retry tomorrow)")
 
     signals.compute_scores(con, date.today())
+    try:
+        import backtest
+        backtest.main()
+        log.info("signal backtest refreshed")
+    except Exception as e:
+        log.warning("backtest skipped: %s", e)
     log.info("done. database: %s", DB_PATH)
 
 
